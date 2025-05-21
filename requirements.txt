@@ -1,3 +1,7 @@
+sentence-transformers
+transformers
+torch
+protobuf
 streamlit==1.25.0
 streamlit-chat==0.1.1
 PyPDF2==3.0.1
@@ -5,9 +9,6 @@ python-docx==0.8.11
 openai==0.27.8
 langchain==0.0.251
 faiss-cpu==1.7.4
-sentence-transformers
-transformers==4.31.0
-torch==2.0.1
 tqdm==4.65.0
 numpy==1.25.2
 requests==2.31.0
