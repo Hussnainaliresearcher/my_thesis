@@ -67,10 +67,10 @@ def main():
         </style>
         <div class="fixed-header">
             <h2 style="color: white; text-align:center;">🌿🌱 AI-Powered Chatbot 🤖 for Transition to Organic Farming 🌿🌱</h2>
-            <p style="color: white; text-align:center;">Get instant answers from organic farming documents and websites.</p>
+            <p style="color: white; text-align:center;">Get instant answers from organic farming in the context of Pakistan.</p>
             <div class="dropdown-row">
                 <form action="" method="get">
-                    <label style="color:white;">Choose a document:</label>
+                    <label style="color:white;">Select your area of interest:</label>
                     <select name="option">
                         {''.join([f'<option value="{opt}" {"selected" if selected_label == opt else ""}>{opt}</option>' for opt in file_options])}
                     </select>
@@ -82,7 +82,18 @@ def main():
         """,
         unsafe_allow_html=True
     )
+    # Centered instruction below the banner
 
+
+    st.markdown(
+    """
+    <div style='text-align: center; margin-top: 5px; font-size: 18px; color: #333;'>
+        👉 <strong>Please select your area of interest from the dropdown above and click "Process" to begin.</strong>
+    </div>
+    """,
+    unsafe_allow_html=True
+    )
+    
     if "chat_history_messages" not in st.session_state:
         st.session_state.chat_history_messages = []
 
@@ -101,10 +112,11 @@ def main():
             # 💡 Create prompt depending on source
             if file_key == "web":
                 template = """
-You are a helpful assistant. Use ONLY the following context to answer the question.
-If the answer is not contained in the context, say 'Sorry, this question is out of my range.'
+You are a helpful assistant. Use the following context as your main reference to answer the question. You may infer or summarize when helpful.
 
-Always include a "Source" line at the end with the source URL from the context if available. 
+If the answer is not contained in the context, say 'Sorry, this question is out of my knowledge domain. I cannot answer this question.'
+
+Always include a "Source" line at the end with the source URL from the context if available , otherwise source line will not be included.
 
 Context:
 {context}
@@ -122,7 +134,7 @@ Question:
             else:
                 template = """
 You are a helpful assistant. Use ONLY the following context to answer the question.
-If the answer is not contained in the context, say 'Sorry, this question is out of my range.'
+If the answer is not contained in the context, say 'Sorry, this question is out of my knowledge domain.' don't include source line in that case.
 
 Context:
 {context}
@@ -146,7 +158,7 @@ Question:
             st.success("You may now chat with the selected content.")
 
     if st.session_state.processComplete and st.session_state.conversation:
-        user_question = st.chat_input("Ask a question about the document:")
+        user_question = st.chat_input("Ask a question about the selected content:")
         if user_question:
             lower_question = user_question.strip().lower()
 
