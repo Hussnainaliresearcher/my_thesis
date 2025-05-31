@@ -11,10 +11,8 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 from streamlit_chat import message
 from langchain.prompts import PromptTemplate
-from langchain.document_loaders import WebBaseLoader
 from langchain.schema import Document
 
-# Static PromptTemplate - we will dynamically change template text later
 PROMPT = None
 
 def main():
@@ -25,22 +23,24 @@ def main():
         "Online Store (pakorganic.com)": "web"
     }
 
+    manual_source_mapping = {
+        "Online Store (pakorganic.com)": [
+            "https://pakorganic.com/",
+            "https://pakorganic.com/page/2/",
+            "https://pakorganic.com/organic-farming-consultancy/",
+            "https://pakorganic.com/our-projects/"
+        ]
+    }
+
     file_options = list(file_mapping.keys())
 
-    # Query parameters
     query_params = st.experimental_get_query_params()
     param_selected = query_params.get("option", [file_options[0]])[0]
     trigger = query_params.get("run", ["false"])[0].lower() == "true"
 
-    # Choose last processed file if available, else from query, else default
-    if "last_processed_file" in st.session_state and st.session_state.last_processed_file in file_options:
-        selected_label = st.session_state.last_processed_file
-    else:
-        selected_label = param_selected
+    selected_label = st.session_state.get("last_processed_file", param_selected)
 
-    # Fixed Header UI
-    st.markdown(
-        f"""
+    st.markdown(f"""
         <style>
             .fixed-header {{
                 position: fixed;
@@ -79,21 +79,14 @@ def main():
                 </form>
             </div>
         </div>
-        """,
-        unsafe_allow_html=True
-    )
-    # Centered instruction below the banner
+    """, unsafe_allow_html=True)
 
-
-    st.markdown(
-    """
+    st.markdown("""
     <div style='text-align: center; margin-top: 5px; font-size: 18px; color: #333;'>
         👉 <strong>Please select your area of interest from the dropdown above and click "Process" to begin.</strong>
     </div>
-    """,
-    unsafe_allow_html=True
-    )
-    
+    """, unsafe_allow_html=True)
+
     if "chat_history_messages" not in st.session_state:
         st.session_state.chat_history_messages = []
 
@@ -101,54 +94,55 @@ def main():
         st.session_state.conversation = None
         st.session_state.processComplete = False
 
-    if "last_processed_file" not in st.session_state:
-        st.session_state.last_processed_file = None
-
-    if trigger and selected_label != st.session_state.last_processed_file:
+    if trigger and selected_label != st.session_state.get("last_processed_file"):
         with st.spinner("Processing..."):
             openai_key = st.secrets["OPENAI_API_KEY"]
             file_key = file_mapping[selected_label]
 
-            # 💡 Create prompt depending on source
             if file_key == "web":
-                template = """
-You are a helpful assistant. Use the following context as your main reference to answer the question. You may infer or summarize when helpful.
-
-If the answer is not contained in the context, say 'Sorry, this question is out of my knowledge domain. I cannot answer this question.'
-
-Always include a "Source" line at the end with the source URL from the context if available , otherwise source line will not be included.
-
-Context:
-{context}
-
-Question:
-{question}
-"""
-                urls = [
-                    "https://pakorganic.com/",
-                    "https://pakorganic.com/page/2/",
-                    "https://pakorganic.com/organic-farming-consultancy/",
-                    "https://pakorganic.com/our-projects/"
-                ]
+                urls = manual_source_mapping[selected_label]
                 documents = get_web_documents(urls)
-            else:
-                template = """
-You are a helpful assistant. Use ONLY the following context to answer the question.
-If the answer is not contained in the context, say 'Sorry, this question is out of my knowledge domain.' don't include source line in that case.
+
+                source_references = "\n".join(urls)
+                template = f"""
+You are a helpful assistant. Use the following web content as your primary reference to answer the user's question.
+
+If the answer is not clearly available, make a reasonable guess or summarize based on what is available.
+
+If you still cannot find anything useful, say:
+'Sorry, this question is out of my knowledge domain.'
+
+Try to respond clearly, especially for questions like:
+- What are the available products?
+- Show product names and prices.
+- Give me a list of items sold.
+
+Always add:
+Source: {source_references}
 
 Context:
-{context}
+{{context}}
 
 Question:
-{question}
+{{question}}
 """
+            else:
                 file_path = os.path.join(os.getcwd(), file_key)
                 text = get_file_text(file_path)
                 documents = [Document(page_content=text)]
 
-            # ✅ Dynamic prompt
-            prompt = PromptTemplate(input_variables=["context", "question"], template=template)
+                template = """
+You are a helpful assistant. Use ONLY the following context to answer the question.
+If the answer is not contained in the context, say 'Sorry, this question is out of my knowledge domain.' Don't include source line in that case.
 
+Context:
+{context}
+
+Question:
+{question}
+"""
+
+            prompt = PromptTemplate(input_variables=["context", "question"], template=template)
             text_chunks = get_text_chunks_with_metadata(documents)
             vectorstore = get_vectorstore_with_metadata(text_chunks)
             st.session_state.conversation = get_conversation_chain(vectorstore, openai_key, prompt)
@@ -162,7 +156,6 @@ Question:
         if user_question:
             lower_question = user_question.strip().lower()
 
-            # Handle small talk manually
             if is_small_talk(lower_question):
                 answer = get_small_talk_reply(lower_question)
             else:
@@ -176,7 +169,7 @@ Question:
         for i, chat in enumerate(st.session_state.chat_history_messages):
             message(chat["content"], is_user=(chat["role"] == "user"), key=f"chat_{i}")
 
-# ========== Helper Functions ==========
+# ================= Helper Functions =================
 
 def get_file_text(file_path):
     text = ""
@@ -197,14 +190,12 @@ def get_docx_text(file_path):
     return " ".join([para.text for para in doc.paragraphs])
 
 def get_web_documents(urls):
+    from langchain.document_loaders import WebBaseLoader
     loader = WebBaseLoader(urls)
     return loader.load()
 
 def get_text_chunks_with_metadata(documents):
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1500,
-        chunk_overlap=200
-    )
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
     return splitter.split_documents(documents)
 
 def get_vectorstore_with_metadata(documents):
@@ -221,26 +212,11 @@ def get_conversation_chain(vectorstore, openai_api_key, prompt):
         combine_docs_chain_kwargs={"prompt": prompt}
     )
 
-# === Small Talk Handling ===
-
 def is_small_talk(message):
     small_talk_patterns = [
-        r"^thanks?$",
-        r"^thank\s?you$",
-        r"^thankyou$",
-        r"^hello$",
-        r"^helo$",
-        r"^thx$",
-        r"^tnx$",
-        r"^thanx$",
-        r"^ok$",
-        r"^okay$",
-        r"^great$",
-        r"^awesome$",
-        r"^nice$",
-        r"^cool$",
-        r"^that('?s)? (great|good)$",
-        r"^that was helpful$"
+        r"^thanks?$", r"^thank\s?you$", r"^thankyou$", r"^hello$", r"^helo$",
+        r"^thx$", r"^tnx$", r"^thanx$", r"^ok$", r"^okay$", r"^great$",
+        r"^awesome$", r"^nice$", r"^cool$", r"^that('?s)? (great|good)$", r"^that was helpful$"
     ]
     return any(re.match(pattern, message) for pattern in small_talk_patterns)
 
@@ -269,7 +245,7 @@ def get_small_talk_reply(message):
     for key in reply_map:
         if re.match(rf"^{key}$", message):
             return reply_map[key]
-    return "You're welcome!"  # Default fallback
+    return "You're welcome!"
 
 if __name__ == '__main__':
     main()
